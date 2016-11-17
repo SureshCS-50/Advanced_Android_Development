@@ -20,6 +20,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -34,7 +35,9 @@ import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.wearable.watchface.CanvasWatchFaceService;
+import android.support.wearable.watchface.WatchFaceService;
 import android.support.wearable.watchface.WatchFaceStyle;
+import android.text.format.DateFormat;
 import android.text.format.Time;
 import android.util.Log;
 import android.view.SurfaceHolder;
@@ -77,10 +80,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
      * displayed in interactive mode.
      */
     private static final long INTERACTIVE_UPDATE_RATE_MS = TimeUnit.SECONDS.toMillis(1);
+    private static final long NORMAL_UPDATE_RATE_MS = 500;
+    private static final long MUTE_UPDATE_RATE_MS = TimeUnit.MINUTES.toMillis(1);
 
-    /**
-     * Handler message id for updating the time periodically in interactive mode.
-     */
+    
     private static final int MSG_UPDATE_TIME = 0;
 
     @Override
@@ -88,11 +91,33 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         return new Engine();
     }
 
-    private class Engine extends CanvasWatchFaceService.Engine  implements DataApi.DataListener,
-            GoogleApiClient.ConnectionCallbacks,GoogleApiClient.OnConnectionFailedListener {
+    private static class EngineHandler extends Handler {
+        private final WeakReference<SunshineWatchFace.Engine> mWeakReference;
 
+        public EngineHandler(SunshineWatchFace.Engine reference) {
+            mWeakReference = new WeakReference<>(reference);
+        }
+
+        @Override
+        public void handleMessage(Message msg) {
+            SunshineWatchFace.Engine engine = mWeakReference.get();
+            if (engine != null) {
+                switch (msg.what) {
+                    case MSG_UPDATE_TIME:
+                        engine.handleUpdateTimeMessage();
+                        break;
+                }
+            }
+        }
+    }
+
+    private class Engine extends CanvasWatchFaceService.Engine {
         final Handler mUpdateTimeHandler = new EngineHandler(this);
-
+        boolean mRegisteredTimeZoneReceiver = false;
+        Paint mBackgroundPaint;
+        Paint mTextPaint;
+        boolean mAmbient;
+        Time mTime;
         final BroadcastReceiver mTimeZoneReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -100,14 +125,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 mTime.setToNow();
             }
         };
-
-        boolean mRegisteredTimeZoneReceiver = false;
-
-        Paint mBackgroundPaint;
-        Paint mTextPaint;
-
-        boolean mAmbient;
-        Time mTime;
         int mTapCount;
 
         float mXOffset;
@@ -118,12 +135,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
          * disable anti-aliasing in ambient mode.
          */
         boolean mLowBitAmbient;
-
-        GoogleApiClient mGoogleApiClient = new GoogleApiClient.Builder(SunshineWatchFace.this)
-                .addConnectionCallbacks(this)
-                .addOnConnectionFailedListener(this)
-                .addApi(Wearable.API)
-                .build();
 
         @Override
         public void onCreate(SurfaceHolder holder) {
@@ -166,7 +177,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             super.onVisibilityChanged(visible);
 
             if (visible) {
-                mGoogleApiClient.connect();
                 registerReceiver();
 
                 // Update time zone in case it changed while we weren't visible.
@@ -174,10 +184,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 mTime.setToNow();
             } else {
                 unregisterReceiver();
-                if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
-                    Wearable.DataApi.removeListener(mGoogleApiClient, this);
-                    mGoogleApiClient.disconnect();
-                }
             }
 
             // Whether the timer should be running depends on whether we're visible (as well as
@@ -246,6 +252,26 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
         }
 
         @Override
+        public void onTapCommand(int tapType, int x, int y, long eventTime) {
+            Resources resources = SunshineWatchFace.this.getResources();
+            switch (tapType) {
+                case TAP_TYPE_TOUCH:
+                    // The user has started touching the screen.
+                    break;
+                case TAP_TYPE_TOUCH_CANCEL:
+                    // The user has started a different gesture or otherwise cancelled the tap.
+                    break;
+                case TAP_TYPE_TAP:
+                    // The user has completed the tap gesture.
+                    mTapCount++;
+                    mBackgroundPaint.setColor(resources.getColor(mTapCount % 2 == 0 ?
+                            R.color.background : R.color.background));
+                    break;
+            }
+            invalidate();
+        }
+
+        @Override
         public void onDraw(Canvas canvas, Rect bounds) {
             // Draw the background.
             if (isInAmbientMode()) {
@@ -262,10 +288,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             canvas.drawText(text, mXOffset, mYOffset, mTextPaint);
         }
 
-        /**
-         * Starts the {@link #mUpdateTimeHandler} timer if it should be running and isn't currently
-         * or stops it if it shouldn't be running but currently is.
-         */
         private void updateTimer() {
             mUpdateTimeHandler.removeMessages(MSG_UPDATE_TIME);
             if (shouldTimerBeRunning()) {
@@ -273,17 +295,10 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
             }
         }
 
-        /**
-         * Returns whether the {@link #mUpdateTimeHandler} timer should be running. The timer should
-         * only run when we're visible and in interactive mode.
-         */
         private boolean shouldTimerBeRunning() {
             return isVisible() && !isInAmbientMode();
         }
 
-        /**
-         * Handle updating the time periodically in interactive mode.
-         */
         private void handleUpdateTimeMessage() {
             invalidate();
             if (shouldTimerBeRunning()) {
@@ -291,46 +306,6 @@ public class SunshineWatchFace extends CanvasWatchFaceService {
                 long delayMs = INTERACTIVE_UPDATE_RATE_MS
                         - (timeMs % INTERACTIVE_UPDATE_RATE_MS);
                 mUpdateTimeHandler.sendEmptyMessageDelayed(MSG_UPDATE_TIME, delayMs);
-            }
-        }
-
-        @Override
-        public void onConnected(@Nullable Bundle bundle) {
-            Log.d(TAG, "GoogleApiClient is Connected");
-        }
-
-        @Override
-        public void onConnectionSuspended(int i) {
-            Log.d(TAG, "GoogleApiClient Connection is Suspended");
-        }
-
-        @Override
-        public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
-            Log.d(TAG, "The connection of GoogleApiClient is failed");
-        }
-
-        @Override
-        public void onDataChanged(DataEventBuffer dataEventBuffer) {
-            Log.d(TAG, "Data is changed");
-        }
-    }
-
-    private static class EngineHandler extends Handler {
-        private final WeakReference<SunshineWatchFace.Engine> mWeakReference;
-
-        public EngineHandler(SunshineWatchFace.Engine reference) {
-            mWeakReference = new WeakReference<>(reference);
-        }
-
-        @Override
-        public void handleMessage(Message msg) {
-            SunshineWatchFace.Engine engine = mWeakReference.get();
-            if (engine != null) {
-                switch (msg.what) {
-                    case MSG_UPDATE_TIME:
-                        engine.handleUpdateTimeMessage();
-                        break;
-                }
             }
         }
     }
