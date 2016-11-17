@@ -347,6 +347,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
                 updateWidgets();
                 updateMuzei();
                 notifyWeather();
+                upWatchFace();
 
             }
             Log.d(LOG_TAG, "Sync Complete. " + cVVector.size() + " Inserted");
@@ -361,7 +362,7 @@ public class SunshineSyncAdapter extends AbstractThreadedSyncAdapter {
     private void upWatchFace(){
         Context context = getContext();
         Intent mIntent = new Intent(context, WearService.class);
-        mIntent.setAction("ACTION_UPDATE_WATCH_FACE");
+        mIntent.setAction(WearService.ACTION_UPDATE_WATCH_FACE);
         context.startService(mIntent);
     }
     private void updateWidgets() {
