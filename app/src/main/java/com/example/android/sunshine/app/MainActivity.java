@@ -59,11 +59,6 @@ public class MainActivity extends AppCompatActivity implements ForecastFragment.
         setSupportActionBar(toolbar);
         getSupportActionBar().setDisplayShowTitleEnabled(false);
 
-        Context context = getApplicationContext();
-        Intent mIntent = new Intent(context, WearService.class);
-        mIntent.setAction(WearService.ACTION_UPDATE_WATCH_FACE);
-        context.startService(mIntent);
-
         if (findViewById(R.id.weather_detail_container) != null) {
             // The detail container view will be present only in the large-screen layouts
             // (res/layout-sw600dp). If this view is present, then the activity should be

@@ -42,13 +42,12 @@ public class WearService extends Service implements
 
     @Override
     public void onConnected(Bundle bundle) {
-        Log.d(TAG, "Updating..");
+        Log.d(TAG, "Updating the WatchFace");
         String locationQuery = Utility.getPreferredLocation(this);
 
         Uri weatherUri = WeatherContract.WeatherEntry
                 .buildWeatherLocationWithDate(locationQuery, System.currentTimeMillis());
 
-        // Declare the cursor to get the data to show on the WatchFace
         Cursor c = getContentResolver().query(
                 weatherUri,
                 new String[]{WeatherContract.WeatherEntry.COLUMN_WEATHER_ID,
@@ -56,7 +55,6 @@ public class WearService extends Service implements
                         WeatherContract.WeatherEntry.COLUMN_MIN_TEMP
                 }, null, null, null);
 
-        // Fetch the cursor and send to the WatchFace the extracted weather by the DataApi
         if (c.moveToFirst()) {
             int weatherId = c.getInt(c.getColumnIndex(
                     WeatherContract.WeatherEntry.COLUMN_WEATHER_ID));
@@ -97,7 +95,6 @@ public class WearService extends Service implements
                     .addOnConnectionFailedListener(this)
                     .addApi(Wearable.API)
                     .build();
-
             mGoogleApiClient.connect();
         }
         return super.onStartCommand(intent, flags, startId);
@@ -107,7 +104,6 @@ public class WearService extends Service implements
     @Override
     public void onDestroy() {
         super.onDestroy();
-
         mGoogleApiClient.disconnect();
     }
 
